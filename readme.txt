@@ -1,14 +1,14 @@
 push local project to github
-1.ÔÚgithubÉÏĞÂ½¨Ò»¸ö¸ú±¾µØÏîÄ¿Í¬ÃûµÄ²Ö¿â
-2.²âÊÔÒ»ÏÂ£¬ÊÚÈ¨ÊÇ·ñ³É¹¦¡¾ssh -T git@github.com¡¿,²»³É¹¦µÄ»°£¬ÒªÖØĞÂÌí¼Óssh key
-3.ÉÏ´«±¾µØÏîÄ¿µ½githubÖ®Ç°ÒªÉèÖÃusernameºÍemail£¬ÒòÎªgithubÃ¿´Îcommit¶¼»á¼ÇÂ¼ËûÃÇ
- ¡¾$ git config --global user.name "your name"¡¿¡¾$ git config --global user.email "your_email@youremail.com"¡¿
-4.cd µ½±¾µØÏîÄ¿Ä¿Â¼£¬Ö´ĞĞÃüÁî¡¾ $ git remote add origin git@github.com:yourName/yourRepo.git¡¿
-5.ÔÚ±¾µØ²Ö¿âÀïÌí¼ÓÒ»Ğ©ÎÄ¼ş£¬±ÈÈçREADME¡¾$ git add README$ git commit -m "first commit"¡¿
-6.ÉÏ´«µ½github£º¡¾$ git push origin master¡¿
-   git pushÃüÁî»á½«±¾µØ²Ö¿âÍÆËÍµ½Ô¶³Ì·şÎñÆ÷¡£
-   git pullÃüÁîÔòÏà·´¡£
-7.Ö´ĞĞ½á¹û£º
+1.åœ¨githubä¸Šæ–°å»ºä¸€ä¸ªè·Ÿæœ¬åœ°é¡¹ç›®åŒåçš„ä»“åº“
+2.æµ‹è¯•ä¸€ä¸‹ï¼Œæˆæƒæ˜¯å¦æˆåŠŸã€ssh -T git@github.comã€‘,ä¸æˆåŠŸçš„è¯ï¼Œè¦é‡æ–°æ·»åŠ ssh key
+3.ä¸Šä¼ æœ¬åœ°é¡¹ç›®åˆ°githubä¹‹å‰è¦è®¾ç½®usernameå’Œemailï¼Œå› ä¸ºgithubæ¯æ¬¡commitéƒ½ä¼šè®°å½•ä»–ä»¬
+ ã€$ git config --global user.name "your name"ã€‘ã€$ git config --global user.email "your_email@youremail.com"ã€‘
+4.cd åˆ°æœ¬åœ°é¡¹ç›®ç›®å½•ï¼Œæ‰§è¡Œå‘½ä»¤ã€ $ git remote add origin git@github.com:yourName/yourRepo.gitã€‘
+5.åœ¨æœ¬åœ°ä»“åº“é‡Œæ·»åŠ ä¸€äº›æ–‡ä»¶ï¼Œæ¯”å¦‚READMEã€$ git add README$ git commit -m "first commit"ã€‘
+6.ä¸Šä¼ åˆ°githubï¼šã€$ git push origin masterã€‘
+   git pushå‘½ä»¤ä¼šå°†æœ¬åœ°ä»“åº“æ¨é€åˆ°è¿œç¨‹æœåŠ¡å™¨ã€‚
+   git pullå‘½ä»¤åˆ™ç›¸åã€‚
+7.æ‰§è¡Œç»“æœï¼š
 $ git push origin master
 Counting objects: 19, done.
 Delta compression using up to 4 threads.
@@ -18,4 +18,11 @@ Total 18 (delta 0), reused 0 (delta 0)
 To git@github.com:xfxlch/imagesPlayer.git
    93243d9..9f168f3  master -> master
 
-±íÃ÷ÉÏ´«³É¹¦£¡
+è¡¨æ˜ä¸Šä¼ æˆåŠŸï¼
+
+
+åœ¨è¿™é‡Œæˆ‘æƒ³è¯´çš„æ˜¯ï¼š
+mvn clean compile -Dmaven.test.skip=true package  appassembler:assemble assembly:single install 
+
+mvn clean compile package install  appassembler:assemble assembly:single -Dmaven.test.skip=true
+ä»¥ä¸Šè¿™ä¸¤ä¸ªè¯­å¥æ‰§è¡Œç»“æœæ˜¯ä¸ä¸€æ ·çš„
