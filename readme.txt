@@ -26,3 +26,13 @@ mvn clean compile -Dmaven.test.skip=true package  appassembler:assemble assembly
 
 mvn clean compile package install  appassembler:assemble assembly:single -Dmaven.test.skip=true
 以上这两个语句执行结果是不一样的
+
+tradeFicMap.put("settleDate", "settlementDate");
+        tradeFicMap.put("amount", "quantity");
+        tradeFicMap.put("settleCurrency", "settlementCurrency");
+        tradeFicMap.put("settleAmount", "settlementAmount");
+        tradeFicMap.put("side", "buySell");
+        tradeFicMap.put("tradeId", "transactionIdentifier");
+        tradeFicMap.put("accountNumber", "partyCode");
+        tradeFicMap.put("transactTime", "activeFrom");
+        tradeFicMap.put("SourceEntity", "systemCode");
