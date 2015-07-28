@@ -36,3 +36,19 @@ tradeFicMap.put("settleDate", "settlementDate");
         tradeFicMap.put("accountNumber", "partyCode");
         tradeFicMap.put("transactTime", "activeFrom");
         tradeFicMap.put("SourceEntity", "systemCode");
+  public static String convertUIFieldToColumn(String inGroupField, BidiMap<String, String> tradeMap) {
+        if (StringUtils.isBlank(inGroupField)) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        String[] inGroupFields = StringUtils.split(inGroupField, ",");
+        if (inGroupFields != null) {
+            for (int i = 0; i < inGroupFields.length; i++) {
+                sb.append(tradeMap.getKey(StringUtils.trim(inGroupFields[i])));
+                if (i != inGroupFields.length - 1) {
+                    sb.append(", ");
+                }
+            }
+        }
+        return sb.toString();
+    }
