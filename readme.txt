@@ -20,6 +20,13 @@ To git@github.com:xfxlch/imagesPlayer.git
 
 表明上传成功！
 
+if not successful, try below steps:
+git init
+git add README.md
+git commit -m "first commit"
+git remote add origin git@github.com:dengzhaotai/vlc_play.git
+git push -u origin master
+
 
 在这里我想说的是：
 mvn clean compile -Dmaven.test.skip=true package  appassembler:assemble assembly:single install 
