@@ -7,14 +7,13 @@ import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.Rectangle;
 import java.awt.SplashScreen;
-import java.awt.Toolkit;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.FilenameFilter;
 import java.io.IOException;
-import java.net.URL;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioInputStream;
@@ -27,133 +26,132 @@ import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.SwingUtilities;
 
 import org.apache.log4j.Logger;
 
 /**
- * this is a pictures viewer. That means u can use it to display some images,
- * and also play music in background
- * 
- * @author Jack#luch2046@gmail.com
- * @since 20140330
+ * Image viewer with background music playback (Swing).
  */
 public class App {
 
-	JFrame frame;
-	final int WIDTH = 800;
-	final int HEIGHT = 600;
-	// 菜单变量
-	JMenuBar menubar;
-	JMenu fileMenu;
-	JMenu aboutMenu;
-	JMenuItem openItem;
-	JMenuItem exitItem;
-	JMenuItem aboutItem;
-	// 图片显示面板
-	JScrollPane jsp;
-	JPanel imagepanel;
-	JLabel label;
-	ImageIcon img;
-	String title = "零五计算机-PictrueViewer";
-	Image imge;
-	String imageFilePath = "";
-	File[] files;
-	File currentFile = null;
-	int fp = 0;// file pointer
-	boolean isActionFlag = true;
-	static Logger log = Logger.getLogger(App.class);
-	boolean isPicPlayEnd = false;
-	String mp3Path = "";
-	AudioInputStream audioInputStream = null;
-	SourceDataLine sourceDataLine = null;
-	AudioFormat audioFormat = null;
-	boolean isStop = true;// control the play thread
-	boolean hasStop = true; // display the play thread status
+    // ── Constants ──
+    private static final int WIDTH = 800;
+    private static final int HEIGHT = 600;
+    private static final String TITLE = "零五计算机-PictureViewer";
+    private static final int SLIDE_INTERVAL_MS = 1500;
+    private static final String IMAGE_DIR_NAME = "image";
+    private static final String MP3_FILE_NAME = "icanplay.mp3";
+    private static final int AUDIO_BUFFER_SIZE = 4096;
+    private static final Logger log = Logger.getLogger(App.class);
 
-	// fetch the SplashScreen.
-	private SplashScreen splash = SplashScreen.getSplashScreen();
-	private Rectangle splashBounds;
-	private Graphics2D g;
+    // ── UI Components ──
+    private JFrame frame;
+    private JPanel imagePanel;
+    private JLabel imageLabel;
+    private JScrollPane scrollPane;
 
-	public App() {
-		drawSplashScreen();
-		initComponent();
-	}
-	public static void main(String[] args) {
-		new App();
-	}
+    // ── State ──
+    private File[] imageFiles;
 
-	/**
-	 * draw a splashscreen
-	 * 
-	 * @author Jack
-	 */
-	public void drawSplashScreen() {
-		initSplash();
-		final String[] stages = {"stage 1", "stage 2", "stage 3"};
-		int stage = 0;
-		for (int i = 0; i <= 100; i += 5) {
-			String status = "Loading " + stages[stage] + "...";
-			if (splash != null)
-				updateSplash(status, i);
-			try {
-				Thread.sleep(100);
-				if (i == 30)
-					stage = 1;
-				else if (i == 60)
-					stage = 2;
-			} catch (Exception e) {
-				e.printStackTrace();
-			}
-		}
-		if (splash != null)
-			splash.close();
-	}
+    // ── Paths ──
+    private final String imageDirPath;
+    private final String mp3Path;
 
-	/**
-	 * update the splashscreen
-	 * @author Jack 
-	 */
-	private void updateSplash(String status, int progress) {
-		if(splash == null) {
-			return;
-		}
-		if (g == null) {
-			return;
-		}
-		//to draw a progress bar.
-		drawSplash(g, status, progress);
-		splash.update();		
-	}
+    // ── Executors (daemon threads so they don't block JVM exit) ──
+    private final ExecutorService slideshowExecutor =
+            Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "slideshow");
+                t.setDaemon(true);
+                return t;
+            });
+    private final ExecutorService musicExecutor =
+            Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "music");
+                t.setDaemon(true);
+                return t;
+            });
 
-	/**
-	 * initialize the SplashScreen. 
-	 * @author Jack
-	 */
-	private void initSplash() {
-		if(splash == null) {
-			log.error(" warn:there is no splash got. ");
-		}  else {
-			 splashBounds = splash.getBounds();
-			 g = splash.createGraphics();
-			 if (g == null) {
-				 log.error(" No create Graphics2D ");
-			 } else {
-			     g.setColor(Color.green);
-			     g.drawRect(0, 0, splashBounds.width - 1, splashBounds.height - 1);
-			 }
-		}
-		
-	}
-	
-	/**
-	 * to draw a progress bar. 
-	 * @author Jack
-	 */
-	private void drawSplash(Graphics2D g, String status, int progress) {
-		int barWidth = splashBounds.width*50/100;
+    // ── Splash ──
+    private final SplashScreen splash = SplashScreen.getSplashScreen();
+    private Rectangle splashBounds;
+    private Graphics2D splashGraphics;
+
+    // ═══════════════════════════════════════════════════
+    //  Entry point
+    // ═══════════════════════════════════════════════════
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(App::new);
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  Constructor
+    // ═══════════════════════════════════════════════════
+
+    public App() {
+        // Resolve paths (cross-platform)
+        String userDir = System.getProperty("user.dir");
+        this.imageDirPath = userDir + File.separator + IMAGE_DIR_NAME;
+        this.mp3Path = imageDirPath + File.separator + MP3_FILE_NAME;
+
+        drawSplashScreen();
+        initUI();
+        startSlideshow();
+        startMusic();
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  Splash Screen
+    // ═══════════════════════════════════════════════════
+
+    private void drawSplashScreen() {
+        initSplash();
+        if (splash == null) return;
+
+        String[] stages = {"stage 1", "stage 2", "stage 3"};
+        int stage = 0;
+        for (int i = 0; i <= 100; i += 5) {
+            String status = "Loading " + stages[stage] + "...";
+            updateSplash(status, i);
+            try {
+                Thread.sleep(100);
+                if (i == 30) stage = 1;
+                else if (i == 60) stage = 2;
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        splash.close();
+    }
+
+    private void initSplash() {
+        if (splash == null) {
+            log.warn("No splash screen found (use -splash:path/to/image to enable)");
+            return;
+        }
+        splashBounds = splash.getBounds();
+        splashGraphics = splash.createGraphics();
+        if (splashGraphics == null) {
+            log.error("Cannot create Graphics2D for splash screen");
+        } else {
+            splashGraphics.setColor(Color.GREEN);
+            splashGraphics.drawRect(0, 0, splashBounds.width - 1, splashBounds.height - 1);
+        }
+    }
+
+    private void updateSplash(String status, int progress) {
+        if (splash == null || splashGraphics == null) return;
+        drawSplashProgress(splashGraphics, status, progress);
+        splash.update();
+    }
+
+    private void drawSplashProgress(Graphics2D g, String status, int progress) {
+        int barWidth = splashBounds.width * 50 / 100;
         g.setComposite(AlphaComposite.Clear);
         g.fillRect(1, 10, splashBounds.width - 2, 20);
         g.setPaintMode();
@@ -162,324 +160,244 @@ public class App {
         g.setColor(Color.BLACK);
         g.drawRect(10, 25, barWidth + 2, 10);
         g.setColor(Color.YELLOW);
-        int width = progress*barWidth/100;
-        g.fillRect(11, 26, width + 1, 9);
+        int w = progress * barWidth / 100;
+        g.fillRect(11, 26, w + 1, 9);
         g.setColor(Color.WHITE);
-        g.fillRect(11 + width + 1, 26, barWidth - width, 9);
-	}
-	
-	
-	/**
-	 * initialize the components
-	 */
-	public void initComponent() {
-		log.info("initComponent method");
-		imageFilePath = System.getProperty("user.dir") + "\\image";
-		String ppth = getAppPath(App.class);
-		log.info(ppth);
-		mp3Path = imageFilePath + "\\icanplay.mp3";
-		log.info(mp3Path);
-		frame = new JFrame();
-		//set the width and height.
-		frame.setSize(800, 600);
-		int w = (Toolkit.getDefaultToolkit().getScreenSize().width - WIDTH) / 2;
-		int h = (Toolkit.getDefaultToolkit().getScreenSize().height - HEIGHT) / 2;
-		frame.setLocation(w, h);
-		frame.setTitle(title);
-		menubar = new JMenuBar();
-		frame.setJMenuBar(menubar);
-		fileMenu = new JMenu("File");
-		aboutMenu = new JMenu("About");
-		menubar.add(fileMenu);
-		menubar.add(aboutMenu);
-		
-		exitItem = new JMenuItem("Exit");
-		aboutItem = new JMenuItem("About Me");
-		//fileMenu.add(openItem);
-		fileMenu.add(exitItem);
-		aboutMenu.add(aboutItem);
-		exitItem.addActionListener(new ActionListener(){
-			public void actionPerformed(ActionEvent e) {
-				log.info("Exit the Application");
-				System.exit(0);
-			}
-		});
-		
-		aboutItem.addActionListener(new ActionListener() {
-			public void actionPerformed(ActionEvent e) {
-				javax.swing.JOptionPane.showMessageDialog(frame, "作者：Jack \nEmail： luch2046@163.com");		
-			}
-		});
-		
-		label = new JLabel();
-		imagepanel = new JPanel();
-		imagepanel.add(label);
-		jsp = new JScrollPane(imagepanel);
-		frame.add(jsp, BorderLayout.CENTER);
-		imge = Toolkit.getDefaultToolkit().getImage(imageFilePath);
-		File file = new File(imageFilePath);
-		System.out.println(file);
-		files = file.listFiles(new PicFilter());
-		System.out.println(files);
-				
-		frame.setLocationRelativeTo(null);
-		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-		frame.setVisible(true);
-		frame.setResizable(false);//disable the maximize button.
-		playPic();
-		playMp3();
-	}
-	
-	
-	
-	/**
-	 * play picture
-	 * @author Jack 
-	 */
-	public void playPic() {
-		Thread play = new Thread(new PlayPicThread());
-		System.out.println("Pic Thread " + play.getName());
-		play.start();	
-	}
-	
-	/**
-	 * play mp3 
-	 * @author Jack
-	 */
-	public void playMp3() {
-		try {
-			isStop = true;//停止播放线程
-			while(!hasStop) {
-				System.out.print(".");
-				try {
-					Thread.sleep(10);
-				} catch (Exception e) {
-					e.printStackTrace();
-				}
-			}
-			//取得文件输入流
-			audioInputStream = AudioSystem.getAudioInputStream(new File(mp3Path));
-			System.out.println(new File(mp3Path).toURI().toURL());
-			audioFormat = audioInputStream.getFormat();
-			//转换MP3文件编码
-			if (audioFormat.getEncoding() != AudioFormat.Encoding.PCM_SIGNED) {
-				audioFormat = new AudioFormat(AudioFormat.Encoding.PCM_SIGNED,
-						audioFormat.getSampleRate(), 16, audioFormat.getChannels(),  
-                        audioFormat.getChannels() * 2, audioFormat.getSampleRate(), false);
-				audioInputStream = AudioSystem.getAudioInputStream(audioFormat, audioInputStream);
-			}
-			//打开输出设备
-			DataLine.Info info = new DataLine.Info(SourceDataLine.class,audioFormat);
-			sourceDataLine = (SourceDataLine) AudioSystem.getLine(info);
-			sourceDataLine.open(audioFormat, sourceDataLine.getBufferSize());  
-			sourceDataLine.start();
-			//创建独立线程进行播放
-			isStop = false;
-			Thread playThread = new Thread(new PlayMp3Thread());
-			System.out.println("Mp3 Thread " + playThread.getName());
-			playThread.start();
-//            int bufferSize = (int) audioFormat.getSampleRate() * audioFormat.getFrameSize();
-//            byte[] buffer = new byte[bufferSize];            
-//            int bytesRead = 0;
-//            while (bytesRead >= 0) {  
-//                bytesRead = audioInputStream.read(buffer, 0, buffer.length);  
-//                if (bytesRead >= 0) {
-//                	sourceDataLine.write(buffer, 0, bytesRead);  
-//                }
-//            }
-		} catch(Exception e) {
-			log.error(" error ", e);
-			e.printStackTrace();
-		}
-	}
-	
-	
-	/**
-	 * @author Jack
-     * 2012-9-24
-     * <br>
-     * inner class
-	 */
-	class PicFilter implements FilenameFilter {
-		public boolean accept(File dir, String name) {
-			if (name.endsWith("jpg") || name.endsWith("gif")||name.endsWith("png")) {
-				return true;
-			} else {
-				return false;
-			}
-		}
-		
-	}
-	/**
-	 * get the Application resource path 
-	 */
-	@SuppressWarnings("rawtypes")
-	public String getAppPath(Class clazz) {
-		ClassLoader loader = clazz.getClassLoader();
-		//get the class file's full name
-		String clazzName = clazz.getName() + ".class";
-		Package pack = clazz.getPackage();
-		String path = "";
-		if(pack != null) {
-			String packName = pack.getName();
-			clazzName = clazzName.substring(packName.length() + 1);
-			if(packName.indexOf(".") < 0) {
-				path = packName + "/";
-			} else {
-				int start = 0, end =0;
-				end = packName.indexOf(".");
-				while(end != -1) {
-					path = path + packName.substring(start, end) + "/";
-					start = end + 1;
-					end = packName.indexOf(".", start);
-				}
-				path = path + packName.substring(start) + "/";
-			}
-		}
-		//path + clazzName
-		URL url = loader.getResource(path + clazzName);
-		String realPath = url.getPath();
-		int pos = realPath.indexOf("file:");
-		if(pos > -1) {
-			realPath = realPath.substring(pos + 5);
-		}
-		pos = realPath.indexOf(path + clazzName);
-		realPath = realPath.substring(0, pos - 1);
-		if(realPath.endsWith("!")) {
-			realPath = realPath.substring(0, realPath.lastIndexOf("/"));
-		}	
-		return realPath;
-	}
-	
-	/**
-	 * play mp3 thread 
-	 * @author Jack
-	 */
-	class PlayMp3Thread extends Thread {
-		byte tempBuffer[] = new byte[320];
-		
-		public void run() {
-			try {
-				int cnt;
-				hasStop = false;
-				// 读取数据到缓存数据
-				System.out.println("before while clause" + audioInputStream.read(tempBuffer, 0, tempBuffer.length));
-				while((cnt = audioInputStream.read(tempBuffer, 0, tempBuffer.length)) != -1) {
-					if(isStop) {
-						System.out.println("isStop:" + isStop);
-						break;
-					}
-					if(cnt > 0) {
-						//写入缓存数据
-						sourceDataLine.write(tempBuffer, 0, cnt);
-					}
-				}
-				System.out.println("after while clause");
-				//Block 等待临时数据被输出为空
-				sourceDataLine.drain();
-				sourceDataLine.close();
-				hasStop = true;
-				if(audioInputStream.read(tempBuffer, 0, tempBuffer.length) == -1) {
-					playMp3();
-				}
-				
-				log.info("in the PlayMp3Thread");
-			} catch (Exception e) {
-				log.error(" error ", e);
-				System.exit(1);
-			}
-			System.out.println("end all");
-		}
-	}
-	
-	/**
-	 *  play picture thread
-	 *  @author Jack 
-	 */
-	class PlayPicThread extends Thread {
-		//override the run method.
-		public void run() {
-			isPicPlayEnd = false;
-			System.out.println(files.length);
-			for(int i = 0; i < files.length; i++) {
-				currentFile = files[i];
-				System.out.println(currentFile);
-				isActionFlag = true;
-				try {
-					Thread.sleep(1500);
-				} catch (InterruptedException e1) {
-					log.error(" error ", e1);
-				}
-				setImage(currentFile, isActionFlag);
-				if(i == files.length -1) {
-					isPicPlayEnd = true;
-				}
-				int count = i + 1;
-				log.info("count" + count);
-				System.out.println("picture: " + count + "/" + files.length);				
-			}
-			//loop play pictures.
-			if(isPicPlayEnd) {
-				playPic();
-				log.info("in the PlayPicThread/loop");
-				System.out.println("play again");
-			}		
-		}
-	}
-	
-	/**
-	 * to set the image size. (set pictures to the same size)
-	 * @param file
-	 * @param isActive 
-	 * 
-	 */
-	public void setImage(File file, boolean isActive) {
-		img = new ImageIcon(file.getPath().toString());
-		System.out.println("pic file path: " + file.getPath());
-		int cw;
-		int ch;
-		int iw = img.getIconWidth();
-		int ih = img.getIconHeight();
-		if(isActive) {
-			cw = jsp.getWidth();
-			ch = jsp.getHeight();
-			if (iw > cw || ih > ch) {
-				if (cw / ch > iw / ih) {
-					iw = iw * (ch - 50) / ih;
-					ih = ch - 50;
-					img.setImage(setFixed(file, iw, ih));
-				} else {
-					ih = (cw - 50) * ih / iw;
-					iw = cw - 50;
-					img.setImage(setFixed(file, iw, ih));
-				}
-			}
-			imagepanel.setLayout(null);
-			label.setBounds((cw - iw) / 2, (ch - ih) / 2, iw, ih);
-		} else {
-			cw = imagepanel.getWidth();
-			ch = imagepanel.getHeight();
-			imagepanel.setLayout(new java.awt.FlowLayout());
-		}
-		label.setIcon(img);
-	}
-	
-	/**
-	 * change the picture size. 
-	 * @param file
-	 * @param width
-	 * @param height
-	 */
-	public Image setFixed(File file, int width, int height) {
-		BufferedImage bi = null;
-		
-		try {
-			bi = javax.imageio.ImageIO.read(file);
-		} catch (IOException ioe) {
-			log.error(" error ", ioe);			
-			ioe.printStackTrace();
-		}
-		
-		return bi.getScaledInstance(width, height, Image.SCALE_SMOOTH);
-	}
+        g.fillRect(11 + w + 1, 26, barWidth - w, 9);
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  UI Initialization
+    // ═══════════════════════════════════════════════════
+
+    private void initUI() {
+        log.info("Initializing UI");
+
+        // Load image files
+        File dir = new File(imageDirPath);
+        imageFiles = (dir.isDirectory() && dir.canRead()) ? dir.listFiles(new PicFilter()) : null;
+        if (imageFiles == null || imageFiles.length == 0) {
+            log.warn("No images found in: " + imageDirPath);
+            imageFiles = new File[0];
+        } else {
+            log.info("Found " + imageFiles.length + " images");
+        }
+
+        // Build frame
+        frame = new JFrame();
+        frame.setSize(WIDTH, HEIGHT);
+        frame.setLocationRelativeTo(null);
+        frame.setTitle(TITLE);
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.setResizable(false);
+
+        // Menu bar
+        JMenuBar menuBar = new JMenuBar();
+        frame.setJMenuBar(menuBar);
+
+        JMenu fileMenu = new JMenu("File");
+        JMenu aboutMenu = new JMenu("About");
+        menuBar.add(fileMenu);
+        menuBar.add(aboutMenu);
+
+        JMenuItem exitItem = new JMenuItem("Exit");
+        exitItem.addActionListener(e -> {
+            log.info("Exiting application");
+            shutdown();
+        });
+        fileMenu.add(exitItem);
+
+        JMenuItem aboutItem = new JMenuItem("About Me");
+        aboutItem.addActionListener(e ->
+            JOptionPane.showMessageDialog(frame, "作者：Jack \nEmail： luch2046@163.com")
+        );
+        aboutMenu.add(aboutItem);
+
+        // Image display area
+        imageLabel = new JLabel();
+        imagePanel = new JPanel();
+        imagePanel.add(imageLabel);
+        scrollPane = new JScrollPane(imagePanel);
+        frame.add(scrollPane, BorderLayout.CENTER);
+
+        frame.setVisible(true);
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  Slideshow
+    // ═══════════════════════════════════════════════════
+
+    private void startSlideshow() {
+        slideshowExecutor.submit(this::slideshowLoop);
+    }
+
+    private void slideshowLoop() {
+        if (imageFiles.length == 0) {
+            log.warn("No images to display");
+            return;
+        }
+        while (!Thread.currentThread().isInterrupted()) {
+            for (File file : imageFiles) {
+                if (Thread.currentThread().isInterrupted()) return;
+                log.info("Showing: " + file.getName());
+                SwingUtilities.invokeLater(() -> setImage(file));
+                try {
+                    Thread.sleep(SLIDE_INTERVAL_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  Music Playback
+    // ═══════════════════════════════════════════════════
+
+    private void startMusic() {
+        musicExecutor.submit(this::musicLoop);
+    }
+
+    private void musicLoop() {
+        while (!Thread.currentThread().isInterrupted()) {
+            try {
+                playMusicOnce();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (Exception e) {
+                log.error("Music playback error, will retry", e);
+                try {
+                    Thread.sleep(2000);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
+    }
+
+    private void playMusicOnce() throws Exception {
+        File mp3File = new File(mp3Path);
+        if (!mp3File.exists()) {
+            log.warn("MP3 file not found: " + mp3Path);
+            Thread.sleep(10000);
+            return;
+        }
+
+        AudioInputStream ais = null;
+        SourceDataLine line = null;
+        try {
+            ais = AudioSystem.getAudioInputStream(mp3File);
+            AudioFormat baseFormat = ais.getFormat();
+            AudioFormat targetFormat = baseFormat;
+
+            // Convert to PCM_SIGNED if needed (for MP3/WAV etc.)
+            if (baseFormat.getEncoding() != AudioFormat.Encoding.PCM_SIGNED) {
+                targetFormat = new AudioFormat(
+                    AudioFormat.Encoding.PCM_SIGNED,
+                    baseFormat.getSampleRate(), 16,
+                    baseFormat.getChannels(),
+                    baseFormat.getChannels() * 2,
+                    baseFormat.getSampleRate(), false
+                );
+                ais = AudioSystem.getAudioInputStream(targetFormat, ais);
+            }
+
+            DataLine.Info info = new DataLine.Info(SourceDataLine.class, targetFormat);
+            line = (SourceDataLine) AudioSystem.getLine(info);
+            line.open(targetFormat);
+            line.start();
+
+            byte[] buffer = new byte[AUDIO_BUFFER_SIZE];
+            int bytesRead;
+            while ((bytesRead = ais.read(buffer, 0, buffer.length)) != -1) {
+                if (Thread.currentThread().isInterrupted()) break;
+                line.write(buffer, 0, bytesRead);
+            }
+            line.drain();
+        } finally {
+            if (line != null) {
+                line.stop();
+                line.close();
+            }
+            if (ais != null) {
+                ais.close();
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  Image Display Helpers
+    // ═══════════════════════════════════════════════════
+
+    private void setImage(File file) {
+        ImageIcon icon = new ImageIcon(file.getAbsolutePath());
+        int containerW = scrollPane.getWidth();
+        int containerH = scrollPane.getHeight();
+        int imgW = icon.getIconWidth();
+        int imgH = icon.getIconHeight();
+
+        if (containerW <= 0 || containerH <= 0) {
+            // Frame not yet laid out; just display at original size
+            imagePanel.setLayout(new java.awt.FlowLayout());
+            imageLabel.setIcon(icon);
+            return;
+        }
+
+        // Scale down if larger than container
+        if (imgW > containerW || imgH > containerH) {
+            double scale = Math.min(
+                (double) (containerW - 20) / imgW,
+                (double) (containerH - 20) / imgH
+            );
+            int scaledW = Math.max(1, (int) (imgW * scale));
+            int scaledH = Math.max(1, (int) (imgH * scale));
+            Image scaled = scaleImage(file, scaledW, scaledH);
+            if (scaled != null) {
+                icon.setImage(scaled);
+            }
+            imagePanel.setLayout(null);
+            imageLabel.setBounds((containerW - scaledW) / 2, (containerH - scaledH) / 2, scaledW, scaledH);
+        } else {
+            imagePanel.setLayout(new java.awt.FlowLayout());
+        }
+        imageLabel.setIcon(icon);
+    }
+
+    private Image scaleImage(File file, int width, int height) {
+        try {
+            BufferedImage bi = javax.imageio.ImageIO.read(file);
+            if (bi == null) {
+                log.warn("Unable to read image: " + file.getAbsolutePath());
+                return null;
+            }
+            return bi.getScaledInstance(width, height, Image.SCALE_SMOOTH);
+        } catch (IOException e) {
+            log.error("Failed to read image: " + file.getAbsolutePath(), e);
+            return null;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  Shutdown
+    // ═══════════════════════════════════════════════════
+
+    private void shutdown() {
+        slideshowExecutor.shutdownNow();
+        musicExecutor.shutdownNow();
+        System.exit(0);
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  Image Filter
+    // ═══════════════════════════════════════════════════
+
+    private static final class PicFilter implements FilenameFilter {
+        @Override
+        public boolean accept(File dir, String name) {
+            return name.endsWith("jpg") || name.endsWith("gif") || name.endsWith("png");
+        }
+    }
 }
